@@ -1,5 +1,5 @@
 const express = require('express');
-const axios = require('axios');
+const puppeteer = require('puppeteer');
 const cors = require('cors');
 
 const app = express();
@@ -9,29 +9,39 @@ app.use(cors());
 
 app.get('/topcv/jobs', async (req, res) => {
   const keyword = req.query.q || 'java';
-  const cityId = req.query.city_id || '1'; // Hà Nội
+  const city = req.query.city || 'ha-noi';
+  const url = `https://www.topcv.vn/tim-viec-lam-${keyword}-tai-${city}-kl1?sba=1&locations=l1`;
 
   try {
-    const response = await axios.get('https://www.topcv.vn/viec-lam/api/job-search', {
-      params: {
-        q: keyword,
-        city_ids: cityId,
-        page: 1,
-      },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Referer': 'https://www.topcv.vn',
-        'Origin': 'https://www.topcv.vn',
-      }
+    const browser = await puppeteer.launch({ headless: "new" });
+    const page = await browser.newPage();
+
+    await page.goto(url, {
+      waitUntil: 'networkidle2',
     });
 
-    res.json(response.data);
-  } catch (error) {
-    console.error('Error fetching jobs:', error.message);
-    res.status(500).json({ error: 'Failed to fetch jobs' });
+    // Đợi thẻ chứa job render ra
+    await page.waitForSelector('.job-list .job-item');
+
+    const jobs = await page.evaluate(() => {
+      const jobEls = document.querySelectorAll('.job-list .job-item');
+      return Array.from(jobEls).map(el => {
+        const title = el.querySelector('.job-title a')?.innerText || '';
+        const company = el.querySelector('.company-name a')?.innerText || '';
+        const location = el.querySelector('.address')?.innerText || '';
+        const url = el.querySelector('.job-title a')?.href || '';
+        return { title, company, location, url };
+      });
+    });
+
+    await browser.close();
+    res.json({ jobs });
+  } catch (err) {
+    console.error('❌ Crawl error:', err.message);
+    res.status(500).json({ error: 'Failed to crawl jobs' });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
+  console.log(`🚀 Proxy server running at http://localhost:${PORT}`);
 });
